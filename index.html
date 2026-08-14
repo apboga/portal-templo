@@ -124,7 +124,7 @@ footer{margin-top:24px;text-align:center;color:var(--muted);font-size:12px}
     </div>
     <label class="toggle"><input type="checkbox" id="soAberto"> Só em aberto</label>
     <button class="tcl-btn" id="btn-reportar" type="button">＋ Reportar</button>
-    <button class="tcl-btn tcl-admin" id="btn-pend" type="button" style="display:none">⚑ Pendências<span class="tcl-badge" id="pend-count"></span></button>
+    <button class="tcl-btn tcl-admin" id="btn-pend" type="button" style="display:none">⚑ Pendências<span class="tcl-badge" id="pend-count" style="display:none">0</span></button>
   </div>
   <div class="stats" id="stats"></div>
   <div class="list" id="list"><div class="loading">Carregando…</div></div>
@@ -241,7 +241,7 @@ sb.auth.onAuthStateChange((ev,session)=>{
   .tcl-btn:hover{background:rgba(127,127,127,.20)}
   .tcl-btn:focus-visible{outline:2px solid #3b82f6;outline-offset:2px}
   #btn-reportar{border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.12);color:#2563eb}
-  .tcl-badge{background:#ef4444;color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700}
+  .tcl-badge{background:#ef4444;color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700;min-width:18px;text-align:center}
   .tcl-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;
     justify-content:center;z-index:9999;padding:16px}
   .tcl-modal-bg.on{display:flex}
@@ -263,25 +263,33 @@ sb.auth.onAuthStateChange((ev,session)=>{
   .tcl-msg{margin-top:12px;font-size:13.5px;padding:9px 12px;border-radius:9px;display:none}
   .tcl-msg.ok{display:block;background:rgba(34,197,94,.14);color:#16a34a}
   .tcl-msg.err{display:block;background:rgba(239,68,68,.14);color:#dc2626}
+  .tcl-tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tcl-tab{font:inherit;font-size:13px;font-weight:600;padding:6px 14px;border-radius:999px;
+    border:1px solid rgba(127,127,127,.3);background:transparent;color:inherit;cursor:pointer}
+  .tcl-tab.on{background:#2563eb;border-color:#2563eb;color:#fff}
   .tcl-pend{border:1px solid rgba(127,127,127,.25);border-radius:12px;padding:14px;margin-bottom:12px}
+  .tcl-pend.done{opacity:.72}
   .tcl-pend .tp{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;
     text-transform:uppercase;padding:2px 8px;border-radius:999px;background:rgba(59,130,246,.15);color:#2563eb}
   .tcl-pend .tp.auto{background:rgba(234,179,8,.18);color:#b45309}
+  .tcl-pend .tp.ok{background:rgba(34,197,94,.16);color:#16a34a}
   .tcl-pend .q{margin:8px 0 4px;font-weight:600}
   .tcl-pend .meta{color:#64748b;font-size:12.5px}
   .tcl-resolver{margin-top:12px;padding-top:12px;border-top:1px dashed rgba(127,127,127,.3);display:none}
   .tcl-resolver.on{display:block}
   .tcl-mini{color:#64748b;font-size:12px;margin:8px 0 4px}
-  .tcl-close{position:sticky;bottom:0}
+  .tcl-toast{position:fixed;right:18px;bottom:18px;z-index:10000;background:#111827;color:#fff;
+    padding:13px 16px;border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.35);font-size:14px;
+    display:none;align-items:center;gap:10px;cursor:pointer;max-width:320px}
+  .tcl-toast.on{display:flex;animation:tclpop .3s ease}
+  @keyframes tclpop{from{transform:translateY(12px);opacity:0}to{transform:none;opacity:1}}
 </style>
 
-<!-- MODAL: Reportar (coordenador) -->
 <div class="tcl-modal-bg" id="modal-report">
   <div class="tcl-modal">
     <h3>Reportar ao sistema</h3>
     <p class="hint">Descreva a situação. O administrador confirma antes de qualquer número mudar.</p>
-    <div class="tcl-field">
-      <label>Tipo de aviso</label>
+    <div class="tcl-field"><label>Tipo de aviso</label>
       <select id="r-tipo">
         <option value="PAGAMENTO_CONTA_ERRADA">Pagamento em conta errada</option>
         <option value="ESTORNO">Estorno / pagamento devolvido</option>
@@ -290,13 +298,11 @@ sb.auth.onAuthStateChange((ev,session)=>{
         <option value="PAGOU_JUNTO">Pagou junto com outro associado</option>
         <option value="PAGOU_ITAU">Pagou por Itaú / conta externa</option>
         <option value="OUTRO">Outro</option>
-      </select>
-    </div>
+      </select></div>
     <div class="tcl-row">
       <div class="tcl-field"><label>Associado (frequência ou nome)</label><input id="r-freq" placeholder="opcional"></div>
       <div class="tcl-field"><label>Mês</label>
-        <select id="r-mes"><option value="">—</option><option>Abr</option><option>Mai</option><option>Jun</option><option>Jul</option></select>
-      </div>
+        <select id="r-mes"><option value="">—</option><option>Abr</option><option>Mai</option><option>Jun</option><option>Jul</option></select></div>
     </div>
     <div class="tcl-field"><label>Descreva com suas palavras</label>
       <textarea id="r-texto" placeholder="Ex.: Este mês o Ytakymaru pagou junto pela Muynã."></textarea></div>
@@ -308,21 +314,26 @@ sb.auth.onAuthStateChange((ev,session)=>{
   </div>
 </div>
 
-<!-- MODAL: Pendencias (admin) -->
 <div class="tcl-modal-bg" id="modal-pend">
   <div class="tcl-modal wide">
-    <h3>Pendências a resolver</h3>
+    <h3>Pendências</h3>
     <p class="hint">Avisos dos coordenadores + casos que o robô levantou. Você transforma cada um em um ajuste que o sistema passa a aplicar.</p>
+    <div class="tcl-tabs">
+      <button class="tcl-tab on" id="tab-aberta" type="button">Abertas</button>
+      <button class="tcl-tab" id="tab-resolvida" type="button">Arquivadas</button>
+    </div>
     <div id="pend-list"><p class="hint">Carregando…</p></div>
-    <div class="tcl-actions tcl-close"><button class="tcl-btn" id="p-close" type="button">Fechar</button></div>
+    <div class="tcl-actions"><button class="tcl-btn" id="p-close" type="button">Fechar</button></div>
   </div>
 </div>
+
+<div class="tcl-toast" id="tcl-toast"></div>
 
 <script>
 (function(){
   const $=id=>document.getElementById(id);
   const MESES=["Abr","Mai","Jun","Jul"];
-  let EU=null; // {email, papel}
+  let EU=null, _lastOpen=null, _aba='aberta';
 
   async function quemSou(){
     if(EU) return EU;
@@ -332,10 +343,13 @@ sb.auth.onAuthStateChange((ev,session)=>{
     EU={email:user.email, papel:(me&&me.papel)||'coordenador'};
     return EU;
   }
-
-  // ---- Fase 2: Reportar ----
   function abrir(id){$(id).classList.add('on')}
   function fechar(id){$(id).classList.remove('on')}
+  function toast(txt){const t=$('tcl-toast');t.textContent='🔔 '+txt;t.classList.add('on');
+    t.onclick=()=>{t.classList.remove('on');$('btn-pend').click();};
+    clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),8000);}
+
+  // ---- Reportar ----
   $('btn-reportar').onclick=()=>{$('r-msg').className='tcl-msg';$('r-texto').value='';$('r-freq').value='';abrir('modal-report')};
   $('r-cancel').onclick=()=>fechar('modal-report');
   $('r-send').onclick=async()=>{
@@ -345,26 +359,49 @@ sb.auth.onAuthStateChange((ev,session)=>{
     $('r-send').disabled=true;
     const {error}=await sb.from('pendencias').insert({
       tipo:$('r-tipo').value, texto:texto, frequencia:$('r-freq').value.trim()||null,
-      mes:$('r-mes').value||null, autor_email:eu.email, origem:'humano', status:'aberta'
-    });
+      mes:$('r-mes').value||null, autor_email:eu.email, origem:'humano', status:'aberta'});
     $('r-send').disabled=false;
     if(error){$('r-msg').className='tcl-msg err';$('r-msg').textContent='Erro: '+error.message;}
     else{$('r-msg').className='tcl-msg ok';$('r-msg').textContent='✅ Aviso enviado! O administrador vai revisar.';
-      setTimeout(()=>fechar('modal-report'),1400);}
+      contarPend();setTimeout(()=>fechar('modal-report'),1400);}
   };
 
-  // ---- Fase 3: Admin resolve ----
-  async function contarPend(){
+  // ---- Contador + aviso automatico ----
+  async function contarPend(silencioso){
     const eu=await quemSou(); if(!eu||eu.papel!=='admin') return;
     $('btn-pend').style.display='inline-flex';
     const {count}=await sb.from('pendencias').select('*',{count:'exact',head:true}).eq('status','aberta');
-    $('pend-count').textContent=count||0;
-    if(!count) $('pend-count').style.display='none';
+    const n=count||0, b=$('pend-count');
+    b.textContent=n; b.style.display=n?'inline-block':'none';
+    if(_lastOpen!==null && n>_lastOpen && !silencioso){
+      const d=n-_lastOpen; toast(d+' novo'+(d>1?'s':'')+' aviso'+(d>1?'s':'')+' na fila.');
+    }
+    _lastOpen=n;
   }
 
+  // ---- Lista (abertas ou arquivadas) ----
+  const CAMPOS={
+    MARCAR:p=>`<div class="tcl-row">
+        <div class="tcl-field"><label>Frequência</label><input class="f-freq" value="${p.frequencia||''}"></div>
+        <div class="tcl-field"><label>Mês</label><select class="f-mes">${['',...MESES].map(m=>`<option value="${m}" ${m===(p.mes||'')?'selected':''}>${m||'todos'}</option>`).join('')}</select></div>
+        <div class="tcl-field"><label>Status</label><select class="f-status">
+          <option value="pago">pago</option><option value="itau">Itaú</option>
+          <option value="conta_antiga">conta antiga</option><option value="anual">anual</option></select></div></div>`,
+    ATRIBUIR_PAGAMENTO:p=>`<div class="tcl-row">
+        <div class="tcl-field"><label>Pagador (de)</label><input class="f-de"></div>
+        <div class="tcl-field"><label>Beneficiário (para)</label><input class="f-para" value="${p.frequencia||''}"></div></div>
+      <div class="tcl-row"><div class="tcl-field"><label>Mês</label><select class="f-mes">${MESES.map(m=>`<option ${m===(p.mes||'')?'selected':''}>${m}</option>`).join('')}</select></div>
+        <div class="tcl-field"><label>Valor (R$)</label><input class="f-valor" type="number" step="0.01"></div></div>`,
+    ALIAS:p=>`<div class="tcl-row">
+        <div class="tcl-field"><label>Nome do pagante (como aparece)</label><input class="f-de"></div>
+        <div class="tcl-field"><label>Associado (nome no cadastro)</label><input class="f-para"></div></div>`,
+    IGNORAR_MOVIMENTO:p=>`<div class="tcl-row">
+        <div class="tcl-field"><label>Frequência</label><input class="f-freq" value="${p.frequencia||''}"></div>
+        <div class="tcl-field"><label>Data (dd/mm/aaaa)</label><input class="f-data"></div>
+        <div class="tcl-field"><label>Valor (R$)</label><input class="f-valor" type="number" step="0.01"></div></div>`,
+    ARQUIVAR:p=>`<p class="tcl-mini">Nenhum ajuste será criado — só marca como resolvida.</p>`
+  };
   function formResolver(p){
-    // opcoes de acao -> tipo de ajuste
-    const mesOpts=['',...MESES].map(m=>`<option value="${m}">${m||'todos os meses'}</option>`).join('');
     return `<div class="tcl-resolver" id="res-${p.id}">
       <div class="tcl-mini">Transformar em ajuste:</div>
       <div class="tcl-field"><label>Ação</label>
@@ -387,31 +424,9 @@ sb.auth.onAuthStateChange((ev,session)=>{
     </div>`;
   }
 
-  const CAMPOS={
-    MARCAR:p=>`<div class="tcl-row">
-        <div class="tcl-field"><label>Frequência</label><input class="f-freq" value="${p.frequencia||''}"></div>
-        <div class="tcl-field"><label>Mês</label><select class="f-mes">${['',...MESES].map(m=>`<option value="${m}" ${m===(p.mes||'')?'selected':''}>${m||'todos'}</option>`).join('')}</select></div>
-        <div class="tcl-field"><label>Status</label><select class="f-status">
-          <option value="pago">pago</option><option value="itau">Itaú</option>
-          <option value="conta_antiga">conta antiga</option><option value="anual">anual</option></select></div></div>`,
-    ATRIBUIR_PAGAMENTO:p=>`<div class="tcl-row">
-        <div class="tcl-field"><label>Pagador (de)</label><input class="f-de"></div>
-        <div class="tcl-field"><label>Beneficiário (para)</label><input class="f-para" value="${p.frequencia||''}"></div></div>
-      <div class="tcl-row"><div class="tcl-field"><label>Mês</label><select class="f-mes">${MESES.map(m=>`<option ${m===(p.mes||'')?'selected':''}>${m}</option>`).join('')}</select></div>
-        <div class="tcl-field"><label>Valor (R$)</label><input class="f-valor" type="number" step="0.01"></div></div>`,
-    ALIAS:p=>`<div class="tcl-row">
-        <div class="tcl-field"><label>Nome do pagante (como aparece)</label><input class="f-de"></div>
-        <div class="tcl-field"><label>Associado (nome no cadastro)</label><input class="f-para"></div></div>`,
-    IGNORAR_MOVIMENTO:p=>`<div class="tcl-row">
-        <div class="tcl-field"><label>Frequência</label><input class="f-freq" value="${p.frequencia||''}"></div>
-        <div class="tcl-field"><label>Data (dd/mm/aaaa)</label><input class="f-data"></div>
-        <div class="tcl-field"><label>Valor (R$)</label><input class="f-valor" type="number" step="0.01"></div></div>`,
-    ARQUIVAR:p=>`<p class="tcl-mini">Nenhum ajuste será criado — só marca como resolvida.</p>`
-  };
-
   window.TCL={
     _pend:{},
-    toggle(id){const el=$('res-'+id);el.classList.toggle('on')},
+    toggle(id){$('res-'+id).classList.toggle('on')},
     camposAcao(id){const box=$('res-'+id);const ac=box.querySelector('.ac').value;
       box.querySelector('.campos').innerHTML=(CAMPOS[ac]?CAMPOS[ac](this._pend[id]):'')},
     async salvar(id){
@@ -432,23 +447,29 @@ sb.auth.onAuthStateChange((ev,session)=>{
         const {error:e2}=await sb.from('pendencias').update({status:'resolvida',resposta:ac}).eq('id',id);
         if(e2) throw e2;
         msg.className='tcl-msg ok';msg.textContent='✅ Resolvido. Vale no próximo processamento.';
-        setTimeout(()=>{carregarPend();contarPend();},900);
+        setTimeout(()=>{carregarPend();contarPend(true);},900);
       }catch(err){msg.className='tcl-msg err';msg.textContent='Erro: '+(err.message||err);}
     }
   };
 
   async function carregarPend(){
-    const {data,error}=await sb.from('pendencias').select('*').eq('status','aberta').order('criada_em',{ascending:false});
+    const st=_aba;
+    const {data,error}=await sb.from('pendencias').select('*').eq('status',st).order('criada_em',{ascending:false});
     if(error){$('pend-list').innerHTML='<p class="tcl-msg err">Erro: '+error.message+'</p>';return;}
-    if(!data.length){$('pend-list').innerHTML='<p class="hint">🎉 Nenhuma pendência aberta.</p>';return;}
+    if(!data.length){$('pend-list').innerHTML='<p class="hint">'+(st==='aberta'?'🎉 Nenhuma pendência aberta.':'Nada arquivado ainda.')+'</p>';return;}
     TCL._pend={};
     $('pend-list').innerHTML=data.map(p=>{
       TCL._pend[p.id]=p;
       const auto=p.origem!=='humano';
-      const d=p.dados||{};
-      const q=p.pergunta||(d&&d.pergunta)||p.texto||'—';
+      const q=p.pergunta||p.texto||(p.dados&&p.dados.pergunta)||'—';
+      if(st==='resolvida'){
+        return `<div class="tcl-pend done">
+          <span class="tp ok">✔ ${p.resposta||'resolvida'}</span>
+          <div class="q">${(q+'').replace(/</g,'&lt;')}</div>
+          <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes+' · '):''}${auto?'robô':('por '+(p.autor_email||''))}</div></div>`;
+      }
       return `<div class="tcl-pend">
-        <span class="tp ${auto?'auto':''}">${auto?'🤖 '+(p.tipo||''):'👤 '+(p.tipo||'')}</span>
+        <span class="tp ${auto?'auto':''}">${auto?'🤖 ':'👤 '}${p.tipo||''}</span>
         <div class="q">${(q+'').replace(/</g,'&lt;')}</div>
         <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes+' · '):''}${p.autor_email?('por '+p.autor_email):'robô'}</div>
         <button class="tcl-btn" type="button" style="margin-top:10px" onclick="TCL.toggle(${p.id})">Resolver ▾</button>
@@ -456,13 +477,19 @@ sb.auth.onAuthStateChange((ev,session)=>{
       </div>`;
     }).join('');
   }
-
-  $('btn-pend').onclick=()=>{abrir('modal-pend');carregarPend();};
+  function setAba(st){_aba=st;
+    $('tab-aberta').classList.toggle('on',st==='aberta');
+    $('tab-resolvida').classList.toggle('on',st==='resolvida');
+    carregarPend();}
+  $('tab-aberta').onclick=()=>setAba('aberta');
+  $('tab-resolvida').onclick=()=>setAba('resolvida');
+  $('btn-pend').onclick=()=>{abrir('modal-pend');setAba('aberta');contarPend(true);};
   $('p-close').onclick=()=>fechar('modal-pend');
 
-  // inicializa quando houver sessao
-  sb.auth.onAuthStateChange((ev,session)=>{ if(session){ setTimeout(contarPend,600); } });
-  (async()=>{ const {data:{session}}=await sb.auth.getSession(); if(session) setTimeout(contarPend,600); })();
+  // inicializa + verifica avisos novos a cada 45s
+  function ligar(){ contarPend(true); setInterval(()=>contarPend(false),45000); }
+  sb.auth.onAuthStateChange((ev,session)=>{ if(session) setTimeout(ligar,600); });
+  (async()=>{ const {data:{session}}=await sb.auth.getSession(); if(session) setTimeout(ligar,600); })();
 })();
 </script>
 
