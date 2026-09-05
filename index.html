@@ -146,7 +146,7 @@ footer{margin-top:24px;text-align:center;color:var(--muted);font-size:12px}
 const SUPABASE_URL = "https://kibhvlytskzruhutjxyt.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYmh2bHl0c2t6cnVodXRqeHl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4OTI5MzYsImV4cCI6MjEwMTQ2ODkzNn0.IjA4GEskIWaNfKOIXoLEJvfgWAghDqrVoGHg7XIneCk";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-const MES = ["Abr","Mai","Jun","Jul"];
+let MES = ["Abr","Mai","Jun","Jul"]; const ORDEM_MES=["Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez","Jan","Fev","Mar"]; const MES_FULL={Abr:"Abril",Mai:"Maio",Jun:"Junho",Jul:"Julho",Ago:"Agosto",Set:"Setembro",Out:"Outubro",Nov:"Novembro",Dez:"Dezembro",Jan:"Janeiro",Fev:"Fevereiro",Mar:"Março"}; const ANO_MES={Abr:2026,Mai:2026,Jun:2026,Jul:2026,Ago:2026,Set:2026,Out:2026,Nov:2026,Dez:2026,Jan:2027,Fev:2027,Mar:2027};
 const ELOS = ["Kaayary","Kwaarará","Tapyarawê","Tatassyrê","Ubararô","Unayessy","Ybyawatã","Ybyssuan"];
 let DADOS=[], elo="__todos__", q="", soAberto=false, ehAdmin=false;
 const strip = s => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
@@ -185,6 +185,10 @@ async function carregar(){
   $('who').innerHTML = ehAdmin ? `<b>${me.nome||'Admin'}</b> · vê todos os elos` : `<b>${me.nome||user.email}</b> · elo ${me.elo}`;
   const {data:assoc}=await sb.from('associados').select('*');
   const {data:cob}=await sb.from('coberturas').select('*');
+  // MES automatico: mostra os meses que o robo gravou (na ordem do ciclo)
+  const _pres=[...new Set((cob||[]).map(x=>x.mes))];
+  MES=ORDEM_MES.filter(m=>_pres.includes(m)); if(!MES.length) MES=["Abr","Mai","Jun","Jul"];
+  {const s2=document.querySelector(".sub2"); if(s2&&MES.length){const a0=ANO_MES[MES[0]],a1=ANO_MES[MES[MES.length-1]]; s2.textContent="Situação por associado · "+MES_FULL[MES[0]]+" a "+MES_FULL[MES[MES.length-1]]+" "+(a0===a1?a0:a0+"/"+a1);}}
   const porFreq={};
   (assoc||[]).forEach(a=>{porFreq[a.frequencia]={elo:a.elo,freq:a.frequencia,nome:a.nome,mensal:Number(a.mensalidade),meses:{}};});
   (cob||[]).forEach(c=>{if(porFreq[c.frequencia])porFreq[c.frequencia].meses[c.mes]={status:c.status,valor:c.valor};});
