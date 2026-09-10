@@ -122,6 +122,7 @@ footer{margin-top:24px;text-align:center;color:var(--muted);font-size:12px}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
       <input id="q" type="text" placeholder="Buscar por nome ou frequência…" autocomplete="off">
     </div>
+    <select id="mesFiltro" style="font:inherit;font-size:13px;font-weight:600;padding:8px 12px;border-radius:9px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;cursor:pointer"><option value="__todos__">Todos os meses</option></select>
     <label class="toggle"><input type="checkbox" id="soAberto"> Só em aberto</label>
     <button class="tcl-btn" id="btn-reportar" type="button">＋ Reportar</button>
     <button class="tcl-btn tcl-admin" id="btn-pend" type="button" style="display:none">⚑ Pendências<span class="tcl-badge" id="pend-count" style="display:none">0</span></button>
@@ -148,7 +149,7 @@ const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 let MES = ["Abr","Mai","Jun","Jul"]; const ORDEM_MES=["Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez","Jan","Fev","Mar"]; const MES_FULL={Abr:"Abril",Mai:"Maio",Jun:"Junho",Jul:"Julho",Ago:"Agosto",Set:"Setembro",Out:"Outubro",Nov:"Novembro",Dez:"Dezembro",Jan:"Janeiro",Fev:"Fevereiro",Mar:"Março"}; const ANO_MES={Abr:2026,Mai:2026,Jun:2026,Jul:2026,Ago:2026,Set:2026,Out:2026,Nov:2026,Dez:2026,Jan:2027,Fev:2027,Mar:2027};
 const ELOS = ["Kaayary","Kwaarará","Tapyarawê","Tatassyrê","Ubararô","Unayessy","Ybyawatã","Ybyssuan"];
-let DADOS=[], elo="__todos__", q="", soAberto=false, ehAdmin=false;
+let DADOS=[], elo="__todos__", q="", soAberto=false, ehAdmin=false, mesFiltro="__todos__";
 const strip = s => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 
 // ---------- LOGIN ----------
@@ -188,13 +189,14 @@ async function carregar(){
   // MES automatico: mostra os meses que o robo gravou (na ordem do ciclo)
   const _pres=[...new Set((cob||[]).map(x=>x.mes))];
   MES=ORDEM_MES.filter(m=>_pres.includes(m)); if(!MES.length) MES=["Abr","Mai","Jun","Jul"];
+  {const _s=document.getElementById("mesFiltro"); if(_s){_s.innerHTML='<option value="__todos__">Todos os meses</option>'+MES.map(m=>`<option value="${m}">${MES_FULL[m]||m}</option>`).join(""); _s.value=mesFiltro;}}
   {const s2=document.querySelector(".sub2"); if(s2&&MES.length){const a0=ANO_MES[MES[0]],a1=ANO_MES[MES[MES.length-1]]; s2.textContent="Situação por associado · "+MES_FULL[MES[0]]+" a "+MES_FULL[MES[MES.length-1]]+" "+(a0===a1?a0:a0+"/"+a1);}}
   const porFreq={};
   (assoc||[]).forEach(a=>{porFreq[a.frequencia]={elo:a.elo,freq:a.frequencia,nome:a.nome,mensal:Number(a.mensalidade),meses:{}};});
   (cob||[]).forEach(c=>{if(porFreq[c.frequencia])porFreq[c.frequencia].meses[c.mes]={status:c.status,valor:c.valor};});
   DADOS=Object.values(porFreq).map(d=>{
     const aberto=MES.filter(m=>!(d.meses[m]&&pago(d.meses[m].status)));
-    return {...d,aberto,total_aberto:d.mensal*aberto.length};
+    return {...d,aberto,total_aberto:aberto.reduce((ss,m)=>{const c=d.meses[m];const cob=(c&&c.status==="parcial"&&c.valor)?Number(c.valor):0;return ss+Math.max(0,d.mensal-cob);},0)};
   });
   if(!ehAdmin) $('elo-wrap').classList.add('hidden');
   render();
@@ -206,6 +208,9 @@ function render(){
     ELOS.forEach(e=>{const n=DADOS.filter(d=>d.elo===e).length;if(n)h+=mk(e,e,n);});
     el.innerHTML=h;el.querySelectorAll('.pill').forEach(b=>b.onclick=()=>{elo=b.dataset.e;render();});
   }
+  const _mc = (mesFiltro==='__todos__') ? MES : [mesFiltro];
+  DADOS.forEach(d=>{ d.aberto=_mc.filter(m=>!(d.meses[m]&&pago(d.meses[m].status)));
+    d.total_aberto=d.aberto.reduce((ss,m)=>{const c=d.meses[m];const cob=(c&&c.status==="parcial"&&c.valor)?Number(c.valor):0;return ss+Math.max(0,d.mensal-cob);},0); });
   const base=DADOS.filter(d=>elo==='__todos__'||d.elo===elo);
   const emAb=base.filter(d=>d.aberto.length>0);
   const val=emAb.reduce((a,d)=>a+d.total_aberto,0);
@@ -226,6 +231,7 @@ function render(){
 }
 $('q').oninput=e=>{q=e.target.value;render();};
 $('soAberto').onchange=e=>{soAberto=e.target.checked;render();};
+$('mesFiltro').onchange=e=>{mesFiltro=e.target.value;render();};
 
 // ---------- INICIALIZAÇÃO ----------
 (async()=>{
