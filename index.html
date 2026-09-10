@@ -125,6 +125,7 @@ footer{margin-top:24px;text-align:center;color:var(--muted);font-size:12px}
     <select id="mesFiltro" style="font:inherit;font-size:13px;font-weight:600;padding:8px 12px;border-radius:9px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;cursor:pointer"><option value="__todos__">Todos os meses</option></select>
     <label class="toggle"><input type="checkbox" id="soAberto"> Só em aberto</label>
     <button class="tcl-btn" id="btn-reportar" type="button">＋ Reportar</button>
+    <button class="tcl-btn" id="btn-meus" type="button" style="display:none">💬 Meus avisos<span class="tcl-badge" id="meus-count" style="display:none">0</span></button>
     <button class="tcl-btn tcl-admin" id="btn-pend" type="button" style="display:none">⚑ Pendências<span class="tcl-badge" id="pend-count" style="display:none">0</span></button>
   </div>
   <div class="stats" id="stats"></div>
@@ -316,6 +317,8 @@ sb.auth.onAuthStateChange((ev,session)=>{
     </div>
     <div class="tcl-field"><label>Descreva com suas palavras</label>
       <textarea id="r-texto" placeholder="Ex.: Este mês o Ytakymaru pagou junto pela Muynã."></textarea></div>
+    <div class="tcl-field"><label>Anexar comprovante (opcional) — foto do Pix, print ou PDF</label>
+      <input id="r-anexo" type="file" accept="image/*,application/pdf" style="font:inherit;font-size:13px"></div>
     <div class="tcl-actions">
       <button class="tcl-btn" id="r-cancel" type="button">Cancelar</button>
       <button class="tcl-btn" id="r-send" type="button" style="border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.12);color:#2563eb">Enviar aviso</button>
@@ -336,6 +339,27 @@ sb.auth.onAuthStateChange((ev,session)=>{
     <div class="tcl-actions"><button class="tcl-btn" id="p-close" type="button">Fechar</button></div>
   </div>
 </div>
+
+<div class="tcl-modal-bg" id="modal-meus">
+  <div class="tcl-modal">
+    <h3>Meus avisos</h3>
+    <p class="hint">Os avisos que você enviou e a conversa com a administração. Responda aqui mesmo. 💬</p>
+    <div id="meus-list"><p class="hint">Carregando…</p></div>
+    <div class="tcl-actions"><button class="tcl-btn" id="m-close" type="button">Fechar</button></div>
+  </div>
+</div>
+
+<style>
+.tcl-conversa{margin-top:10px;border-top:1px dashed rgba(127,127,127,.3);padding-top:8px}
+.tcl-bolha{max-width:85%;padding:7px 11px;border-radius:12px;margin:5px 0;font-size:14px;line-height:1.4;word-break:break-word}
+.tcl-bolha .a{display:block;font-size:11px;font-weight:700;opacity:.7;margin-bottom:2px}
+.b-eu{background:rgba(59,130,246,.14);margin-left:auto;border-bottom-right-radius:4px}
+.b-outro{background:rgba(127,127,127,.16);margin-right:auto;border-bottom-left-radius:4px}
+.tcl-reply{display:flex;gap:6px;margin-top:8px}
+.tcl-reply input{flex:1;font:inherit;font-size:14px;padding:8px 10px;border-radius:9px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit}
+.tcl-anexo{display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:13px;font-weight:700;
+  padding:5px 11px;border-radius:9px;background:rgba(168,120,31,.14);color:#a9781f;border:1px solid rgba(168,120,31,.4);cursor:pointer}
+</style>
 
 <div class="tcl-toast" id="tcl-toast"></div>
 
@@ -360,16 +384,28 @@ sb.auth.onAuthStateChange((ev,session)=>{
     clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),8000);}
 
   // ---- Reportar ----
-  $('btn-reportar').onclick=()=>{$('r-msg').className='tcl-msg';$('r-texto').value='';$('r-freq').value='';abrir('modal-report')};
+  $('btn-reportar').onclick=()=>{$('r-msg').className='tcl-msg';$('r-texto').value='';$('r-freq').value='';if($('r-anexo'))$('r-anexo').value='';abrir('modal-report')};
   $('r-cancel').onclick=()=>fechar('modal-report');
   $('r-send').onclick=async()=>{
     const eu=await quemSou(); if(!eu){$('r-msg').className='tcl-msg err';$('r-msg').textContent='Faça login novamente.';return;}
     const texto=$('r-texto').value.trim();
     if(!texto){$('r-msg').className='tcl-msg err';$('r-msg').textContent='Escreva uma descrição.';return;}
     $('r-send').disabled=true;
+    // anexo opcional -> sobe pro armário 'comprovantes' e guarda o caminho em dados.anexo
+    let dados=null;
+    const f=$('r-anexo')&&$('r-anexo').files[0];
+    if(f){
+      if(f.size>8*1024*1024){$('r-send').disabled=false;$('r-msg').className='tcl-msg err';$('r-msg').textContent='Arquivo muito grande (máx. 8 MB).';return;}
+      $('r-msg').className='tcl-msg';$('r-msg').textContent='Enviando anexo…';
+      const ext=((f.name.split('.').pop()||'dat')+'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,5)||'dat';
+      const path='rep/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.'+ext;
+      const up=await sb.storage.from('comprovantes').upload(path,f,{contentType:f.type||undefined,upsert:false});
+      if(up.error){$('r-send').disabled=false;$('r-msg').className='tcl-msg err';$('r-msg').textContent='Erro ao anexar: '+up.error.message;return;}
+      dados={anexo:path, anexo_nome:f.name};
+    }
     const {error}=await sb.from('pendencias').insert({
       tipo:$('r-tipo').value, texto:texto, frequencia:$('r-freq').value.trim()||null,
-      mes:$('r-mes').value||null, autor_email:eu.email, origem:'humano', status:'aberta'});
+      mes:$('r-mes').value||null, autor_email:eu.email, origem:'humano', status:'aberta', dados:dados});
     $('r-send').disabled=false;
     if(error){$('r-msg').className='tcl-msg err';$('r-msg').textContent='Erro: '+error.message;}
     else{$('r-msg').className='tcl-msg ok';$('r-msg').textContent='✅ Aviso enviado! O administrador vai revisar.';
@@ -462,8 +498,29 @@ sb.auth.onAuthStateChange((ev,session)=>{
     }
   };
 
+  // mapa email -> "Nome · elo" para mostrar quem reportou (em vez do e-mail cru)
+  TCL._quem = TCL._quem || null;
+  async function carregarQuem(){
+    if(TCL._quem) return TCL._quem;
+    TCL._quem = {};
+    try{
+      const {data}=await sb.from('usuarios').select('email,nome,elo');
+      (data||[]).forEach(u=>{
+        const nm=(u.nome||u.email||'').trim();
+        TCL._quem[(u.email||'').toLowerCase()] = u.elo ? (nm+' · '+u.elo) : nm;
+      });
+    }catch(e){}
+    return TCL._quem;
+  }
+  function autoria(p){
+    if(!p.autor_email) return 'robô';
+    const q=TCL._quem&&TCL._quem[(p.autor_email||'').toLowerCase()];
+    return 'por '+(q||p.autor_email);
+  }
+
   async function carregarPend(){
     const st=_aba;
+    await carregarQuem();
     const {data,error}=await sb.from('pendencias').select('*').eq('status',st).order('criada_em',{ascending:false});
     if(error){$('pend-list').innerHTML='<p class="tcl-msg err">Erro: '+error.message+'</p>';return;}
     if(!data.length){$('pend-list').innerHTML='<p class="hint">'+(st==='aberta'?'🎉 Nenhuma pendência aberta.':'Nada arquivado ainda.')+'</p>';return;}
@@ -476,16 +533,20 @@ sb.auth.onAuthStateChange((ev,session)=>{
         return `<div class="tcl-pend done">
           <span class="tp ok">✔ ${p.resposta||'resolvida'}</span>
           <div class="q">${(q+'').replace(/</g,'&lt;')}</div>
-          <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes+' · '):''}${auto?'robô':('por '+(p.autor_email||''))}</div></div>`;
+          <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes+' · '):''}${auto?'robô':autoria(p)}</div>
+          ${auto?'':anexoHTML(p)}${auto?'':conversaHTML(p)}</div>`;
       }
       return `<div class="tcl-pend">
         <span class="tp ${auto?'auto':''}">${auto?'🤖 ':'👤 '}${p.tipo||''}</span>
         <div class="q">${(q+'').replace(/</g,'&lt;')}</div>
-        <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes+' · '):''}${p.autor_email?('por '+p.autor_email):'robô'}</div>
+        <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes+' · '):''}${autoria(p)}</div>
+        ${auto?'':anexoHTML(p)}
         <button class="tcl-btn" type="button" style="margin-top:10px" onclick="TCL.toggle(${p.id})">Resolver ▾</button>
         ${formResolver(p)}
+        ${auto?'':conversaHTML(p)}
       </div>`;
     }).join('');
+    data.forEach(p=>{ if(p.origem==='humano') carregarConversa(p.id); });
   }
   function setAba(st){_aba=st;
     $('tab-aberta').classList.toggle('on',st==='aberta');
@@ -496,8 +557,83 @@ sb.auth.onAuthStateChange((ev,session)=>{
   $('btn-pend').onclick=()=>{abrir('modal-pend');setAba('aberta');contarPend(true);};
   $('p-close').onclick=()=>fechar('modal-pend');
 
+  // ---- Anexo (comprovante) + Conversa (compartilhado admin/coordenador) ----
+  function anexoHTML(p){
+    const a=p.dados&&p.dados.anexo; if(!a) return '';
+    const nome=((p.dados&&p.dados.anexo_nome)||'comprovante')+'';
+    return `<div class="tcl-anexo" onclick="TCL.verAnexo(${p.id})">📎 Ver comprovante <span style="font-weight:400;opacity:.75">(${nome.replace(/</g,'&lt;').slice(0,40)})</span></div>`;
+  }
+  function conversaHTML(p){
+    return `<div class="tcl-conversa" id="conv-${p.id}"><div class="tcl-mini">Carregando conversa…</div></div>
+      <div class="tcl-reply">
+        <input id="cin-${p.id}" placeholder="Escrever mensagem…" onkeydown="if(event.key==='Enter')TCL.responder(${p.id})">
+        <button class="tcl-btn" type="button" onclick="TCL.responder(${p.id})">Enviar</button>
+      </div>`;
+  }
+  async function carregarConversa(id){
+    const box=$('conv-'+id); if(!box) return;
+    const {data,error}=await sb.from('mensagens').select('*').eq('pendencia_id',id).order('criada_em',{ascending:true});
+    if(error){box.innerHTML='<div class="tcl-mini">Conversa indisponível.</div>';return;}
+    const eu=EU||await quemSou();
+    if(!data.length){box.innerHTML='<div class="tcl-mini">Sem mensagens ainda. 💬</div>';return;}
+    box.innerHTML=data.map(m=>{
+      const mine=eu&&m.autor_email&&m.autor_email.toLowerCase()===eu.email.toLowerCase();
+      let nome;
+      if(mine) nome='Você';
+      else if(eu&&eu.papel==='admin') nome=(TCL._quem&&TCL._quem[(m.autor_email||'').toLowerCase()])||m.autor_email;
+      else nome='Administração';
+      return `<div class="tcl-bolha ${mine?'b-eu':'b-outro'}"><span class="a">${(nome+'').replace(/</g,'&lt;')}</span>${(m.texto+'').replace(/</g,'&lt;')}</div>`;
+    }).join('');
+  }
+  TCL.verAnexo=async function(id){
+    const p=(TCL._pend&&TCL._pend[id])||(TCL._meus&&TCL._meus[id]); if(!p||!p.dados||!p.dados.anexo) return;
+    const {data,error}=await sb.storage.from('comprovantes').createSignedUrl(p.dados.anexo,3600);
+    if(error){alert('Não consegui abrir o anexo: '+error.message);return;}
+    window.open(data.signedUrl,'_blank');
+  };
+  TCL.responder=async function(id){
+    const inp=$('cin-'+id); if(!inp) return;
+    const txt=inp.value.trim(); if(!txt) return;
+    const eu=await quemSou(); if(!eu) return;
+    inp.disabled=true;
+    const {error}=await sb.from('mensagens').insert({pendencia_id:id,autor_email:eu.email,texto:txt});
+    inp.disabled=false;
+    if(error){alert('Erro ao enviar: '+error.message);return;}
+    inp.value=''; carregarConversa(id);
+  };
+
+  // ---- Meus avisos (coordenador vê os próprios relatos + responde) ----
+  async function carregarMeus(){
+    const eu=await quemSou(); if(!eu) return;
+    await carregarQuem();
+    const {data,error}=await sb.from('pendencias').select('*').eq('autor_email',eu.email).order('criada_em',{ascending:false});
+    if(error){$('meus-list').innerHTML='<p class="tcl-msg err">Erro: '+error.message+'</p>';return;}
+    if(!data.length){$('meus-list').innerHTML='<p class="hint">Você ainda não enviou nenhum aviso. Use o ＋ Reportar. 🙂</p>';return;}
+    TCL._meus={};
+    $('meus-list').innerHTML=data.map(p=>{
+      TCL._meus[p.id]=p;
+      const q=p.texto||'—';
+      const st=(p.status==='resolvida')?'<span class="tp ok">✔ resolvido</span>':'<span class="tp">⏳ em análise</span>';
+      return `<div class="tcl-pend">${st}
+        <div class="q">${(q+'').replace(/</g,'&lt;')}</div>
+        <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes):''}</div>
+        ${anexoHTML(p)}
+        ${conversaHTML(p)}
+      </div>`;
+    }).join('');
+    data.forEach(p=>carregarConversa(p.id));
+  }
+  async function contarMeus(){
+    const eu=await quemSou(); if(!eu) return;
+    $('btn-meus').style.display='inline-flex';
+    const {count}=await sb.from('pendencias').select('*',{count:'exact',head:true}).eq('autor_email',eu.email).eq('status','aberta');
+    const n=count||0,b=$('meus-count'); b.textContent=n; b.style.display=n?'inline-block':'none';
+  }
+  $('btn-meus').onclick=()=>{abrir('modal-meus');carregarMeus();};
+  $('m-close').onclick=()=>fechar('modal-meus');
+
   // inicializa + verifica avisos novos a cada 45s
-  function ligar(){ contarPend(true); setInterval(()=>contarPend(false),45000); }
+  function ligar(){ contarPend(true); contarMeus(); setInterval(()=>{contarPend(false);contarMeus();},45000); }
   sb.auth.onAuthStateChange((ev,session)=>{ if(session) setTimeout(ligar,600); });
   (async()=>{ const {data:{session}}=await sb.auth.getSession(); if(session) setTimeout(ligar,600); })();
 })();
