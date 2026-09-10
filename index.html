@@ -518,35 +518,72 @@ sb.auth.onAuthStateChange((ev,session)=>{
     return 'por '+(q||p.autor_email);
   }
 
+  // ---- Encaminhar aviso do robô ao coordenador do elo do associado ----
+  async function mapaCoordElo(){
+    if(TCL._coordElo) return TCL._coordElo;
+    TCL._coordElo={};
+    try{ const {data}=await sb.from('usuarios').select('email,elo,papel');
+      (data||[]).forEach(u=>{ if(u.papel==='coordenador'&&u.elo&&!TCL._coordElo[u.elo]) TCL._coordElo[u.elo]=u.email; });
+    }catch(e){}
+    return TCL._coordElo;
+  }
+  async function mapaFreqElo(){
+    if(TCL._freqElo) return TCL._freqElo;
+    TCL._freqElo={};
+    try{ const {data}=await sb.from('associados').select('frequencia,elo');
+      (data||[]).forEach(a=>{ TCL._freqElo[a.frequencia]=a.elo; });
+    }catch(e){}
+    return TCL._freqElo;
+  }
+  function coordDaFreq(freq){
+    const elo=(TCL._freqElo&&TCL._freqElo[freq])||null;
+    const email=(elo&&TCL._coordElo&&TCL._coordElo[elo])||null;
+    const nome=email?((TCL._quem&&TCL._quem[email.toLowerCase()])||email):null;
+    return {elo:elo,email:email,nome:nome};
+  }
+  function encaminhaHTML(p){
+    const c=coordDaFreq(p.frequencia);
+    if(!c.email) return `<div class="tcl-mini" style="margin-top:8px;color:#c0271f">⚠️ Sem coordenador cadastrado no elo ${c.elo||'?'} — sua mensagem fica só como nota.</div>`;
+    const seguido=p.origem==='auto_seguido';
+    return `<div class="tcl-mini" style="margin-top:8px">${seguido?'💬 Conversando com':'✉️ Vai para'}: <b>${(c.nome+'').replace(/</g,'&lt;')}</b></div>`;
+  }
+
   async function carregarPend(){
     const st=_aba;
-    await carregarQuem();
+    await carregarQuem(); await mapaFreqElo(); await mapaCoordElo();
     const {data,error}=await sb.from('pendencias').select('*').eq('status',st).order('criada_em',{ascending:false});
     if(error){$('pend-list').innerHTML='<p class="tcl-msg err">Erro: '+error.message+'</p>';return;}
     if(!data.length){$('pend-list').innerHTML='<p class="hint">'+(st==='aberta'?'🎉 Nenhuma pendência aberta.':'Nada arquivado ainda.')+'</p>';return;}
+    // esconde o duplicado 'auto' quando já existe um 'auto_seguido' (mesmo tipo/assoc/mês)
+    const chave=p=>p.tipo+'|'+(p.frequencia||'')+'|'+(p.mes||'');
+    const seg=new Set(data.filter(p=>p.origem==='auto_seguido').map(chave));
+    const rows=data.filter(p=>!(p.origem==='auto' && seg.has(chave(p))));
     TCL._pend={};
-    $('pend-list').innerHTML=data.map(p=>{
+    $('pend-list').innerHTML=rows.map(p=>{
       TCL._pend[p.id]=p;
-      const auto=p.origem!=='humano';
+      const humano=p.origem==='humano';
+      const roboFreq=!humano && p.frequencia;           // aviso do robô que dá pra encaminhar
+      const temConversa=humano||roboFreq;
       const q=p.pergunta||p.texto||(p.dados&&p.dados.pergunta)||'—';
       if(st==='resolvida'){
         return `<div class="tcl-pend done">
           <span class="tp ok">✔ ${p.resposta||'resolvida'}</span>
           <div class="q">${(q+'').replace(/</g,'&lt;')}</div>
-          <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes+' · '):''}${auto?'robô':autoria(p)}</div>
-          ${auto?'':anexoHTML(p)}${auto?'':conversaHTML(p)}</div>`;
+          <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes+' · '):''}${humano?autoria(p):'robô'}</div>
+          ${humano?anexoHTML(p):''}${temConversa?conversaHTML(p):''}</div>`;
       }
       return `<div class="tcl-pend">
-        <span class="tp ${auto?'auto':''}">${auto?'🤖 ':'👤 '}${p.tipo||''}</span>
+        <span class="tp ${humano?'':'auto'}">${humano?'👤 ':'🤖 '}${p.tipo||''}</span>
         <div class="q">${(q+'').replace(/</g,'&lt;')}</div>
-        <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes+' · '):''}${autoria(p)}</div>
-        ${auto?'':anexoHTML(p)}
+        <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes+' · '):''}${humano?autoria(p):'robô'}</div>
+        ${humano?anexoHTML(p):''}
         <button class="tcl-btn" type="button" style="margin-top:10px" onclick="TCL.toggle(${p.id})">Resolver ▾</button>
         ${formResolver(p)}
-        ${auto?'':conversaHTML(p)}
+        ${roboFreq?encaminhaHTML(p):''}
+        ${temConversa?conversaHTML(p):''}
       </div>`;
     }).join('');
-    data.forEach(p=>{ if(p.origem==='humano') carregarConversa(p.id); });
+    rows.forEach(p=>{ if(p.origem==='humano'||(p.origem!=='humano'&&p.frequencia)) carregarConversa(p.id); });
   }
   function setAba(st){_aba=st;
     $('tab-aberta').classList.toggle('on',st==='aberta');
@@ -596,6 +633,17 @@ sb.auth.onAuthStateChange((ev,session)=>{
     const txt=inp.value.trim(); if(!txt) return;
     const eu=await quemSou(); if(!eu) return;
     inp.disabled=true;
+    const p=(TCL._pend&&TCL._pend[id])||(TCL._meus&&TCL._meus[id]);
+    // adoção: admin escrevendo num aviso do robô ainda não seguido -> encaminha ao coordenador do elo
+    if(p && eu.papel==='admin' && p.origem==='auto' && p.frequencia){
+      await mapaFreqElo(); await mapaCoordElo();
+      const c=coordDaFreq(p.frequencia);
+      const novo=Object.assign({}, (p.dados||{}), {coordenador_email:c.email||null, elo:c.elo||null});
+      const {error:ea}=await sb.from('pendencias').update({origem:'auto_seguido', dados:novo}).eq('id',id);
+      if(ea){inp.disabled=false;alert('Erro ao encaminhar: '+ea.message);return;}
+      p.origem='auto_seguido'; p.dados=novo;
+      if(!c.email) alert('Enviado, mas não há coordenador cadastrado nesse elo — ficou como nota sua.');
+    }
     const {error}=await sb.from('mensagens').insert({pendencia_id:id,autor_email:eu.email,texto:txt});
     inp.disabled=false;
     if(error){alert('Erro ao enviar: '+error.message);return;}
@@ -606,14 +654,20 @@ sb.auth.onAuthStateChange((ev,session)=>{
   async function carregarMeus(){
     const eu=await quemSou(); if(!eu) return;
     await carregarQuem();
-    const {data,error}=await sb.from('pendencias').select('*').eq('autor_email',eu.email).order('criada_em',{ascending:false});
-    if(error){$('meus-list').innerHTML='<p class="tcl-msg err">Erro: '+error.message+'</p>';return;}
+    // avisos que EU enviei + avisos do robô encaminhados a mim (coordenador do elo)
+    const r1=await sb.from('pendencias').select('*').eq('autor_email',eu.email);
+    const r2=await sb.from('pendencias').select('*').filter('dados->>coordenador_email','eq',eu.email);
+    if(r1.error){$('meus-list').innerHTML='<p class="tcl-msg err">Erro: '+r1.error.message+'</p>';return;}
+    const vistos={}, data=[];
+    (r1.data||[]).concat(r2.data||[]).forEach(p=>{ if(!vistos[p.id]){vistos[p.id]=1;data.push(p);} });
+    data.sort((a,b)=>(b.criada_em||'').localeCompare(a.criada_em||''));
     if(!data.length){$('meus-list').innerHTML='<p class="hint">Você ainda não enviou nenhum aviso. Use o ＋ Reportar. 🙂</p>';return;}
     TCL._meus={};
     $('meus-list').innerHTML=data.map(p=>{
       TCL._meus[p.id]=p;
-      const q=p.texto||'—';
-      const st=(p.status==='resolvida')?'<span class="tp ok">✔ resolvido</span>':'<span class="tp">⏳ em análise</span>';
+      const q=p.texto||p.pergunta||(p.dados&&p.dados.pergunta)||'—';
+      const meu=p.autor_email===eu.email;
+      const st=(p.status==='resolvida')?'<span class="tp ok">✔ resolvido</span>':(meu?'<span class="tp">⏳ em análise</span>':'<span class="tp">❓ pergunta da administração</span>');
       return `<div class="tcl-pend">${st}
         <div class="q">${(q+'').replace(/</g,'&lt;')}</div>
         <div class="meta">${p.frequencia?('Assoc.: '+p.frequencia+' · '):''}${p.mes?('Mês: '+p.mes):''}</div>
@@ -626,8 +680,9 @@ sb.auth.onAuthStateChange((ev,session)=>{
   async function contarMeus(){
     const eu=await quemSou(); if(!eu) return;
     $('btn-meus').style.display='inline-flex';
-    const {count}=await sb.from('pendencias').select('*',{count:'exact',head:true}).eq('autor_email',eu.email).eq('status','aberta');
-    const n=count||0,b=$('meus-count'); b.textContent=n; b.style.display=n?'inline-block':'none';
+    const c1=await sb.from('pendencias').select('*',{count:'exact',head:true}).eq('autor_email',eu.email).eq('status','aberta');
+    const c2=await sb.from('pendencias').select('*',{count:'exact',head:true}).filter('dados->>coordenador_email','eq',eu.email).eq('status','aberta');
+    const n=(c1.count||0)+(c2.count||0),b=$('meus-count'); b.textContent=n; b.style.display=n?'inline-block':'none';
   }
   $('btn-meus').onclick=()=>{abrir('modal-meus');carregarMeus();};
   $('m-close').onclick=()=>fechar('modal-meus');
