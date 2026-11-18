@@ -76,6 +76,8 @@ h1.tt{font-weight:800;font-size:27px;letter-spacing:-.02em;margin:8px 0 4px;colo
 .m-pago{background:var(--pago-bg);color:var(--pago)}.m-aberto{background:var(--aberto-bg);color:var(--aberto)}
 .m-itau{background:var(--azul-bg);color:var(--azul)}.m-antec{background:var(--antec-bg);color:var(--antec)}
 .m-anual{background:var(--anual-bg);color:var(--anual)}.m-cinza{background:var(--cinza-bg);color:var(--cinza)}
+.obs{margin-top:8px;font-size:13px;color:var(--muted);line-height:1.45;white-space:pre-wrap}
+.obs-btn{background:none;border:0;color:var(--bronze);font-size:12px;font-weight:700;cursor:pointer;padding:6px 0 0;font-family:inherit}
 .aberto-line{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);font-size:14px;color:var(--aberto);font-weight:700}
 .legend{margin-top:26px;padding:16px;background:var(--panel);border:1px solid var(--line);border-radius:14px;font-size:12.5px;color:var(--muted)}
 .legend b{color:var(--ink)}.legend .row{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px}
@@ -151,6 +153,23 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 let MES = ["Abr","Mai","Jun","Jul"]; const ORDEM_MES=["Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez","Jan","Fev","Mar"]; const MES_FULL={Abr:"Abril",Mai:"Maio",Jun:"Junho",Jul:"Julho",Ago:"Agosto",Set:"Setembro",Out:"Outubro",Nov:"Novembro",Dez:"Dezembro",Jan:"Janeiro",Fev:"Fevereiro",Mar:"Março"}; const ANO_MES={Abr:2026,Mai:2026,Jun:2026,Jul:2026,Ago:2026,Set:2026,Out:2026,Nov:2026,Dez:2026,Jan:2027,Fev:2027,Mar:2027};
 const ELOS = ["Kaayary","Kwaarará","Tapyarawê","Tatassyrê","Ubararô","Unayessy","Ybyawatã","Ybyssuan"];
 let DADOS=[], elo="__todos__", q="", soAberto=false, ehAdmin=false, mesFiltro="__todos__";
+let OBS={}, meuElo=null;   // observação fixa por associado (tabela observacoes)
+const escH = s => String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function obsHtml(freq,eloA){
+  const o=OBS[freq]; const pode=ehAdmin||eloA===meuElo;
+  let h=o?`<div class="obs">📝 ${escH(o.texto)}</div>`:'';
+  if(pode) h+=`<button class="obs-btn" onclick="editarObs('${encodeURIComponent(freq)}')">${o?'✎ Editar observação':'+ Observação'}</button>`;
+  return h;
+}
+async function editarObs(fq){
+  const freq=decodeURIComponent(fq); const atual=(OBS[freq]&&OBS[freq].texto)||'';
+  const t=prompt('Observação de '+freq+'\n(deixe vazio para apagar)',atual); if(t===null) return;
+  const txt=t.trim(); const {data:{user}}=await sb.auth.getUser();
+  const {error}=await sb.from('observacoes').upsert({frequencia:freq,texto:txt,autor_email:user.email,atualizado_em:new Date().toISOString()});
+  if(error){alert('Não consegui salvar a observação: '+error.message);return;}
+  if(txt) OBS[freq]={frequencia:freq,texto:txt}; else delete OBS[freq];
+  render();
+}
 const strip = s => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 
 // ---------- LOGIN ----------
@@ -187,6 +206,8 @@ async function carregar(){
   $('who').innerHTML = ehAdmin ? `<b>${me.nome||'Admin'}</b> · vê todos os elos` : `<b>${me.nome||user.email}</b> · elo ${me.elo}`;
   const {data:assoc}=await sb.from('associados').select('*');
   const {data:cob}=await sb.from('coberturas').select('*');
+  meuElo=me.elo||null; OBS={};
+  {const {data:obsD}=await sb.from('observacoes').select('frequencia,texto'); (obsD||[]).forEach(o=>{if(o.texto) OBS[o.frequencia]=o;});}
   // MES automatico: mostra os meses que o robo gravou (na ordem do ciclo)
   const _pres=[...new Set((cob||[]).map(x=>x.mes))];
   MES=ORDEM_MES.filter(m=>_pres.includes(m)); if(!MES.length) MES=["Abr","Mai","Jun","Jul"];
@@ -219,7 +240,7 @@ function render(){
     [emAb.length,'Em aberto',1],['R$ '+val.toLocaleString('pt-BR'),'Valor em aberto',1]]
     .map(([v,k,a])=>`<div class="stat ${a?'alert':''}"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
   let rows=base;
-  if(q){const s=strip(q);rows=rows.filter(d=>strip(d.freq).includes(s)||strip(d.nome).includes(s));}
+  if(q){const s=strip(q);rows=rows.filter(d=>strip(d.freq).includes(s)||strip(d.nome).includes(s)||strip(OBS[d.freq]&&OBS[d.freq].texto).includes(s));}
   if(soAberto)rows=rows.filter(d=>d.aberto.length>0);
   rows.sort((a,b)=>b.aberto.length-a.aberto.length||a.freq.localeCompare(b.freq));
   if(!rows.length){$('list').innerHTML='<div class="loading">Nada encontrado.</div>';return;}
@@ -227,7 +248,7 @@ function render(){
     const meses=MES.map(mn=>{const c=d.meses[mn]||{status:'sem_dados'};const m=mapStatus(c.status,c.valor);
       return `<div class="mes ${m.cls}"><div class="mn">${mn}</div><div class="ms">${m.label}</div></div>`;}).join('');
     const ab=d.aberto.length?`<div class="aberto-line">Em aberto: ${d.aberto.join(', ')} · R$ ${d.total_aberto.toLocaleString('pt-BR')}</div>`:'';
-    return `<div class="card ${d.aberto.length?'tem-aberto':''}"><div class="card-top"><div><span class="freq">${d.freq}</span> <span class="nome">· ${d.nome}</span></div><span class="elo-tag">${d.elo}</span></div><div class="meses">${meses}</div>${ab}</div>`;
+    return `<div class="card ${d.aberto.length?'tem-aberto':''}"><div class="card-top"><div><span class="freq">${d.freq}</span> <span class="nome">· ${d.nome}</span></div><span class="elo-tag">${d.elo}</span></div>${obsHtml(d.freq,d.elo)}<div class="meses">${meses}</div>${ab}</div>`;
   }).join('');
 }
 $('q').oninput=e=>{q=e.target.value;render();};
