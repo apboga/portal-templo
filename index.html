@@ -139,7 +139,7 @@ footer{margin-top:24px;text-align:center;color:var(--muted);font-size:12px}
       <span class="it"><span class="dot" style="background:var(--azul)"></span> Itaú (conta antiga)</span>
       <span class="it"><span class="dot" style="background:var(--antec)"></span> Antecipado (↩)</span>
       <span class="it"><span class="dot" style="background:var(--anual)"></span> Anual</span>
-      <span class="it"><span class="dot" style="background:var(--cinza)"></span> Sem dados</span>
+      <span class="it"><span class="dot" style="background:var(--cinza)"></span> Sem dados / Isento</span>
     </div>
   </div>
   <footer>Instituição Filantrópica e Cultural Ará Tembayê Tayê</footer>
@@ -191,11 +191,11 @@ $('btn-sair').onclick=async()=>{await sb.auth.signOut();location.reload();};
 function mapStatus(status,valor){
   const M={pago:['m-pago',v=>'R$'+v],aberto:['m-aberto',()=>'aberto'],itau:['m-itau',()=>'Itaú'],
     antecipado:['m-antec',v=>'↩ R$'+v],anual:['m-anual',()=>'Anual'],conta_antiga:['m-itau',()=>'Itaú'],
-    parcial:['m-aberto',v=>'R$'+v],sem_dados:['m-cinza',()=>'—']};
+    parcial:['m-aberto',v=>'R$'+v],isento:['m-cinza',()=>'Isento'],sem_dados:['m-cinza',()=>'—']};
   const [cls,lab]=M[status]||['m-cinza',()=>'—'];
   return {cls,label:lab(valor)};
 }
-const pago = st => ['pago','itau','antecipado','anual','conta_antiga'].includes(st);
+const pago = st => ['pago','itau','antecipado','anual','conta_antiga','isento'].includes(st);
 
 async function carregar(){
   const {data:{user}}=await sb.auth.getUser();
